@@ -1748,6 +1748,7 @@ static const u32 liverpool_golden_registers[] =
 	0x28350, 0xffffffff, 0x2a00161a, /* PA_SC_RASTER_CONFIG */
 	0x28354, 0xffffffff, 0x00000000, /* PA_SC_RASTER_CONFIG_1 */
 	0x5004, 0x00002000, 0x00002000, /* GARLIC_FLUSH_CNTL */
+	0x14d4, 0xffffffff, 0x00000000, /* VM_CONTEXTS_DISABLE */
 };
 
 static const u32 spectre_golden_spm_registers[] =
@@ -4241,7 +4242,7 @@ static void cik_gpu_init(struct radeon_device *rdev)
 		break;
 	case CHIP_LIVERPOOL:
 		rdev->config.cik.max_shader_engines = 2; // VERIFIED
-		rdev->config.cik.max_tile_pipes = 4; // ??
+		rdev->config.cik.max_tile_pipes = 8; // VERIFIED
 		rdev->config.cik.max_cu_per_sh = 10; // PROBABLY OK
 		rdev->config.cik.max_sh_per_se = 1; // VERIFIED
 		rdev->config.cik.max_backends_per_se = 2; // PROBABLY OK, >1?
@@ -4969,21 +4970,21 @@ static int cik_cp_gfx_load_microcode(struct radeon_device *rdev)
 		/* PFP */
 		fw_data = (const __be32 *)rdev->pfp_fw->data;
 		WREG32(CP_PFP_UCODE_ADDR, 0);
-		for (i = 0; i < CIK_PFP_UCODE_SIZE; i++)
+		for (i = 0; i < rdev->pfp_fw->size/4; i++)
 			WREG32(CP_PFP_UCODE_DATA, be32_to_cpup(fw_data++));
 		WREG32(CP_PFP_UCODE_ADDR, 0);
 
 		/* CE */
 		fw_data = (const __be32 *)rdev->ce_fw->data;
 		WREG32(CP_CE_UCODE_ADDR, 0);
-		for (i = 0; i < CIK_CE_UCODE_SIZE; i++)
+		for (i = 0; i < rdev->ce_fw->size/4; i++)
 			WREG32(CP_CE_UCODE_DATA, be32_to_cpup(fw_data++));
 		WREG32(CP_CE_UCODE_ADDR, 0);
 
 		/* ME */
 		fw_data = (const __be32 *)rdev->me_fw->data;
 		WREG32(CP_ME_RAM_WADDR, 0);
-		for (i = 0; i < CIK_ME_UCODE_SIZE; i++)
+		for (i = 0; i < rdev->me_fw->size/4; i++)
 			WREG32(CP_ME_RAM_DATA, be32_to_cpup(fw_data++));
 		WREG32(CP_ME_RAM_WADDR, 0);
 	}
@@ -6519,6 +6520,14 @@ static int cik_pcie_gart_enable(struct radeon_device *rdev)
 			       rdev->vm_manager.saved_table_addr[i]);
 	}
 
+	if (rdev->family == CHIP_LIVERPOOL) {
+		for (i = 2; i < 8; i++) {
+			WREG32(VM_CONTEXT0_PAGE_TABLE_START_ADDR + (i << 2), 0);
+			WREG32(VM_CONTEXT0_PAGE_TABLE_END_ADDR + (i << 2),
+			       rdev->vm_manager.max_pfn - 1);
+		}
+	}
+
 	/* enable context1-15 */
 	WREG32(VM_CONTEXT1_PROTECTION_FAULT_DEFAULT_ADDR,
 	       (u32)(rdev->dummy_page.addr >> 12));
@@ -7811,6 +7820,10 @@ void cik_get_csb_buffer(struct radeon_device *rdev, volatile u32 *buffer)
 	case CHIP_HAWAII:
 		buffer[count++] = cpu_to_le32(0x3a00161a);
 		buffer[count++] = cpu_to_le32(0x0000002e);
+		break;
+	case CHIP_LIVERPOOL:
+		buffer[count++] = cpu_to_le32(0x2a00161a);
+		buffer[count++] = cpu_to_le32(0x00000000);
 		break;
 	default:
 		buffer[count++] = cpu_to_le32(0x00000000);
